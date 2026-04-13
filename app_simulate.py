@@ -14,7 +14,7 @@ def reset_and_simulate():
 
     # 2. 建立初始餘額 init.json
     initial_balances = {
-        "Angel": 100000,
+        "Angel": 1000000,
         "A": 10000,
         "B": 10000,
         "C": 10000,
