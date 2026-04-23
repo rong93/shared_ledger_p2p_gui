@@ -19,8 +19,11 @@ init:
 	docker exec -it client-1 python3 app_init.py
 	@echo ">>> 同步初始帳本至 client-2 與 client-3..."
 	@# 確保目錄存在並強制覆蓋
+	rm -rf storage/client2/*
 	cp -rf storage/client1/* storage/client2/
+	rm -rf storage/client3/*
 	cp -rf storage/client1/* storage/client3/
+	sudo chmod -R 777 $(pwd)/storage/
 	@echo ">>> [成功] 所有節點初始化與同步完成！"
 
 # 僅啟動

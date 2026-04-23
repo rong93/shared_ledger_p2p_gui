@@ -49,7 +49,7 @@ class P2PNode:
                             print(f"\n[接收廣播] 已接收來自 {addr} 的交易: {sender} -> {receiver} ({amount})\n")
                             process_transaction(sender, receiver, amount)
 
-                            print("Enter a command (checkMoney, checkLog, transaction, checkChain): ", end="", flush=True)
+                            print("=" * 64 +"\nEnter a command (checkMoney, checkLog, transaction, checkChain): ", end="", flush=True)
             except Exception:
                 pass
 
@@ -67,7 +67,7 @@ class P2PNode:
     def _menu_loop(self):
         """主要互動式指令選單"""
         while True:
-            user_input = input("\nEnter a command (checkMoney, checkLog, transaction, checkChain): ").strip().split()
+            user_input = input("=" * 64 +"\nEnter a command (checkMoney, checkLog, transaction, checkChain): ").strip().split()
             if not user_input:
                 continue
             
