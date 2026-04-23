@@ -5,23 +5,31 @@ import sys
 
 # 匯入現有的功能模組邏輯
 from app_transaction import process_transaction, get_balances, STORAGE_PATH, parse_block
-from app_checkChain import check_chain as run_check_chain
+from app_checkChain import check_chain
+from app_checkLog import check_log
 
 # 每個 container 都要執行這份檔案
 class P2PNode:
     def __init__(self, port, peers):
-        self.port = port
-        self.peers = peers
-        # 使用 UDP 協定，符合 requirement.md 描述的廣播機制
+        self.port = port # 這台 container 的 port
+        self.peers = peers # 這台 container 要傳給誰資料
+        self.my_hostname = socket.gethostname() # 這台 container 的 名稱(ex: client-1)
+
+        # 使用 IPv4 格式 ，使用 UDP 協定 的 廣播機制
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # 綁定 0.0.0.0 以接收所有網路介面的訊息
+
+        # 定義收件地址 寫 0.0.0.0 代表 會傳到 這台 container 的 外部和內部 IP 地址
         self.sock.bind(('0.0.0.0', self.port))
 
     def start(self):
         # 啟動背景監聽線程
+
+        # 讓程式可以同時做兩件事。監聽外面的廣播 和 輸入指令的畫面。
         listener = threading.Thread(target=self._listen, daemon=True)
         listener.start()
+
         print(f"P2P 節點已啟動，監聽 Port: {self.port}")
+        
         # 進入指令選單循環
         self._menu_loop()
 
@@ -31,97 +39,110 @@ class P2PNode:
             try:
                 data, addr = self.sock.recvfrom(1024)
                 msg = data.decode('utf-8')
-                
                 # 解析交易訊息 格式: "sender,receiver,amount"
                 if "," in msg:
                     parts = msg.split(",")
-                    if len(parts) == 3:
-                        sender, receiver, amount = parts[0], parts[1], int(parts[2])
-                        # 自動寫入本地帳本
-                        process_transaction(sender, receiver, amount)
-                        print(f"\n[網路同步] 已接收並記錄來自 {addr} 的交易: {sender} 轉帳 {amount} 給 {receiver}")
-                        print("Enter a command (checkMoney, checkLog, transaction, checkChain): ", end="", flush=True)
+                    if(parts[0] == "transaction"):
+                        if len(parts) == 4:
+                            sender, receiver, amount = parts[1], parts[2], int(parts[3])
+
+                            print(f"\n[接收廣播] 已接收來自 {addr} 的交易: {sender} -> {receiver} ({amount})\n")
+                            process_transaction(sender, receiver, amount)
+
+                            print("Enter a command (checkMoney, checkLog, transaction, checkChain): ", end="", flush=True)
             except Exception:
                 pass
 
     def _broadcast(self, message):
-        """將交易訊息廣播給所有已知節點"""
-        for peer in self.peers:
-            try:
-                self.sock.sendto(message.encode('utf-8'), peer)
-            except:
-                pass
+           """廣播給所有人，但跳過自己"""
+           for peer_host, peer_port in self.peers:
+               # 如果鄰居的名稱跟我的容器名稱一樣，就跳過
+               if peer_host == self.my_hostname:
+                   continue
+               try:
+                   self.sock.sendto(message.encode('utf-8'), (peer_host, peer_port))
+               except Exception as e:
+                   print(f"發送至 {peer_host} 失敗: {e}")
 
     def _menu_loop(self):
         """主要互動式指令選單"""
         while True:
-            cmd = input("\nEnter a command (checkMoney, checkLog, transaction, checkChain): ").strip()
+            user_input = input("\nEnter a command (checkMoney, checkLog, transaction, checkChain): ").strip().split()
+            if not user_input:
+                continue
+            
+            cmd = user_input[0]
 
             if cmd == "transaction":
-                sender = input("Sender: ").strip()
-                receiver = input("Receiver: ").strip()
-                try:
-                    amount = int(input("Amount: "))
-                    # 1. 先更新並記錄在自己的本地帳本
-                    if process_transaction(sender, receiver, amount):
-                        # 2. 廣播訊息給其他節點，讓全網同步
-                        msg = f"{sender},{receiver},{amount}"
+                if len(user_input) == 4:
+                    sender, receiver, amount_str = user_input[1], user_input[2], user_input[3]
+                    try:
+                        amount = int(amount_str)
+
+
+                        # 1. 廣播訊息給其他節點，讓全網同步
+                        msg = f"{cmd},{sender},{receiver},{amount}"
                         self._broadcast(msg)
-                        print("交易成功並已廣播至 P2P 網路。")
-                except ValueError:
-                    print("錯誤: 金額必須是數字。")
+
+                        print(f"\n[發送廣播] {cmd}: {sender} -> {receiver} ({amount})\n")
+
+                        # 2. 更新並記錄在自己的本地帳本
+                        process_transaction(sender, receiver, amount)
+
+
+                    except ValueError:
+                        print("錯誤: 金額必須是數字。")
+                else:
+                    print("用法: transaction <Sender> <Receiver> <Amount>")
 
             elif cmd == "checkMoney":
-                user = input("User name: ").strip()
-                balances = get_balances()
-                if user in balances:
-                    print(f"{user} 的目前餘額為: {balances[user]}")
+                if len(user_input) == 2:
+                    user = user_input[1]
+                    balances = get_balances()
+                    if user in balances:
+                        print(f"{user} 的目前餘額為: {balances[user]}")
+                    else:
+                        print(f"找不到使用者 '{user}'")
                 else:
-                    print(f"找不到使用者 '{user}'")
+                    print("用法: checkMoney <User>")
 
             elif cmd == "checkChain":
-                reward_user = input("Who gets the reward? ").strip()
-                # 模擬 sys.argv 以調用 app_checkChain.py 的邏輯
-                sys.argv = ["app_checkChain.py", reward_user]
-                run_check_chain()
+                if len(user_input) == 2:
+                    reward_user = user_input[1]
+                    if check_chain(reward_user): #檢查沒有錯誤的話 就需要 做到交易 所以要廣播
+
+                        msg = f"transaction,Angel,{reward_user},10"
+                        self._broadcast(msg)
+
+                        print(f"\n[發送廣播] transaction: Angel -> {reward_user} (10)\n")
+
+                else:
+                    print("用法: checkChain <RewardUser>")
 
             elif cmd == "checkLog":
-                target_user = input("要查詢哪位使用者的交易紀錄: ").strip()
-                self._show_logs(target_user)
+                if len(user_input) == 2:
+                    target_user = user_input[1]
+                    check_log(target_user)
+                else:
+                    print("用法: checkLog <User>")
 
             elif cmd == "exit":
                 print("系統關閉中...")
                 break
-            elif not cmd:
-                continue
             else:
                 print(f"未知指令: {cmd}")
 
-    def _show_logs(self, target_user):
-        """顯示指定使用者的所有交易日誌 (對應 app_checkLog.py 功能)"""
-        if not os.path.exists(STORAGE_PATH):
-            print("目前尚無帳本紀錄。")
-            return
-        
-        files = [f for f in os.listdir(STORAGE_PATH) if f.endswith(".txt") and f[:-4].isdigit()]
-        files.sort(key=lambda x: int(x[:-4]))
-        
-        print(f"--- {target_user} 的交易紀錄 ---")
-        found = False
-        for file_name in files:
-            data = parse_block(os.path.join(STORAGE_PATH, file_name))
-            for tx in data["transactions"]:
-                if target_user in tx:
-                    print(f"[{file_name}] {tx}")
-                    found = True
-        if not found:
-            print("查無此使用者的交易紀錄。")
-
 if __name__ == '__main__':
-    # 設定節點資訊：
-    # 在 Docker 網路中，node1, node2, node3 會自動解析為對應容器的 IP
-    my_port = 8001
-    peer_list = [('node1', 8001), ('node2', 8001), ('node3', 8001)]
+    # 設定節點(node)資訊：
+    # 這裡的 node 就是指 每個 container 
+
+    # 這表示有人傳訊息過來會傳送到 8001 port 
+    my_port = 8001 
+
+
+    # 對應到 docker-compose.yml 中每個 container_name
+    # 這表示 指定訊息要傳給 哪個client 和 port 多少
+    peer_list = [('client1', 8001), ('client2', 8001), ('client3', 8001)]
     
     node = P2PNode(my_port, peer_list)
     node.start()

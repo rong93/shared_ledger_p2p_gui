@@ -3,25 +3,31 @@ services:
   client1:
     build: .               # 使用目前資料夾的 Dockerfile 建立環境
     container_name: client-1
+    hostname: client1
     volumes:
-      - .:/app             # 同步你的 Python 程式碼
-      - ./storage:/share   # 【關鍵】這是三台機器共用的「帳本空間」
+      - .:/app             # Ubuntu 中的程式碼 到 container 
+      - ./storage/client1:/app/storage # 每個 container 有獨立帳本
     tty: true              # 讓容器保持啟動，不要自動關閉
+    stdin_open: true # 關鍵：確保可以接收輸入 不是很確定用處
 
   # 定義第二台機器
   client2:
     build: .
     container_name: client-2
+    hostname: client2
     volumes:
       - .:/app
-      - ./storage:/share   # 指向同一個實體資料夾
+      - ./storage/client2:/app/storage   # 每個 container 有獨立帳本
     tty: true
+    stdin_open: true 
 
   # 定義第三台機器
   client3:
     build: .
     container_name: client-3
+    hostname: client3
     volumes:
       - .:/app
-      - ./storage:/share   # 指向同一個實體資料夾
+      - ./storage/client3:/app/storage   # 每個 container 有獨立帳本
     tty: true
+    stdin_open: true 

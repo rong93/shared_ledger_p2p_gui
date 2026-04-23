@@ -2,12 +2,13 @@ import sys
 import os
 from app_transaction import STORAGE_PATH, parse_block
 
-def check_log():
-    if len(sys.argv) != 2:
-        print("用法: python3 app_checkLog.py [使用者名稱]")
-        return
-
-    target_user = sys.argv[1]
+def check_log(target_user=None):
+    # 如果沒傳參數，就從命令列抓取 (sys.argv[1])
+    if target_user is None:
+        if len(sys.argv) < 2:
+            print("用法: python3 app_checkLog.py [使用者名稱]")
+            return
+        target_user = sys.argv[1]
     
     # 1. 取得所有區塊檔案並排序 (1.txt, 2.txt...)
     if not os.path.exists(STORAGE_PATH):

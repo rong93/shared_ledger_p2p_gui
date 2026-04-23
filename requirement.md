@@ -11,6 +11,8 @@
 
 1.  **交易發起與廣播**：
     *   使用者在任一節點輸入交易指令（例如：A 轉帳 10 元給 B）。
+    *   **自動註冊機制**：若輸入的使用者（寄件人或收件人）不存在於系統中，系統應自動將其加入初始餘額表（`init.json`）並設定初始金額為 0。
+    *   **強制廣播同步**：不論交易是否因餘額不足而失敗，發起節點皆須將此交易訊息廣播至全網。這確保了所有節點都能同步更新其 `init.json`，完成新使用者的「註冊」動作。
     *   發起節點透過 Socket 將交易訊息廣播至網路中所有已知節點的 IP。
     *   Socket 是用來實現 資料傳輸的手段。
 2.  **同步寫入與檔案切分**：
@@ -32,14 +34,14 @@
 python3 p2p.py
 ```
 **【重要】P2P 運作必要條件：**
-* **每個 Container 都必須執行此程式**：本系統為去中心化架構，每個節點（node1, node2, node3）都必須啟動 `p2p.py` 才能即時接收廣播訊息、同步本地帳本並參與全球共識驗證。
+* **每個 Container 都必須執行此程式**：本系統為去中心化架構，每個節點（client1, client2, client3）都必須啟動 `p2p.py` 才能即時接收廣播訊息、同步本地帳本並參與全球共識驗證。
 
-進入互動式介面後，可輸入以下指令：
-會顯示 Enter a command (checkMoney, checkLog, transaction, checkChain):
-*   `transaction`：發起一筆新的交易。
-*   `checkMoney`：查詢特定使用者的帳戶餘額。
-*   `checkChain`：進行本地帳本雜湊鏈完整性檢查。
-*   `checkLog`：啟動跨節點全球共識驗證。
+進入互動式介面後，可輸入以下「一行式」指令：
+*   `transaction <Sender> <Receiver> <Amount>`：例如 `transaction A B 10`。
+*   `checkMoney <User>`：例如 `checkMoney A`。
+*   `checkChain <RewardUser>`：例如 `checkChain Angel`。
+*   `checkLog <User>`：例如 `checkLog A`。
+*   `exit`：退出程式。
 
 ## 4. 實作步驟清單
 

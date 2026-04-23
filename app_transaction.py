@@ -82,6 +82,7 @@ def process_transaction(sender, receiver, amount):
     if receiver not in balances: balances[receiver] = 0
     if balances[sender] < amount:
         print(f"轉帳失敗: {sender} 餘額不足")
+        update_balances(balances)
         return False
 
     balances[sender] -= amount
