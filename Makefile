@@ -23,7 +23,7 @@ init:
 	cp -rf storage/client1/* storage/client2/
 	rm -rf storage/client3/*
 	cp -rf storage/client1/* storage/client3/
-	sudo chmod -R 777 $(pwd)/storage/
+	sudo chmod -R 777 ./storage/
 	@echo ">>> [成功] 所有節點初始化與同步完成！"
 
 # 僅啟動
