@@ -1,165 +1,49 @@
-# docker
+# P2P
 
-## ubuntu 安裝
+## P2P 是啥?
 
-在 windows 上 開啟 終端機(叫 windows powershell)
+點對點通訊，是通訊的一種技術。
+
+可以讓 多台電腦(container) 互相傳送 資料。中間不需要經過 中央伺服器 來傳話。
+
+![image.png](./img/p2p.png)
+
+## 使用 P2P的目的
+
+在這次的專題中，
+
+要讓 每個 container 都有自己獨立的帳本，但同時 每個 container 的帳本內容又需要相同。
+
+所以 透過 P2P 通訊的方式，
+
+當在 conatiner 1 執行交易的程式時，所有container 會互相聯絡 先確保大家的帳本紀錄都相同，確認都相同後 才會在 container 1 執行交易。
+
+當交易完成後 container 1 的帳本更新時 ，就會去告訴 conatiner 2 和 container 3 更新帳本內容。
+
+## 事前處理
+
+### 安裝套件
+
+初始化資料:
+
+因為每次輸入會是隨機的值 所以應該是 一個 container 建立好初始資料 就複製到其他兩個 container 裡面
+
+使用 make 指令 需要先安裝 (需要自己確認 自己的 ubuntu是否能用 apt 通常是可以)
 
 ```bash
-wsl --install -d Ubuntu #在windows 的終端機 上面輸入後 會安裝 linux Ubuntu 
-```
-
-會需要設定 使用者名稱 和 密碼
-
-安裝完成後 需要重新開啟終端機才會出現 ubuntu
-
-![ubuntu_.png](./img/ubuntu_.png)
-
----
-
-## docker 安裝
-
-```bash
-#docker 安裝步驟
-
 sudo apt update
-sudo apt install docker.io
+sudo apt install make
 
-sudo systemctl start docker 
-#啟動 docker 工具，輸入這行之後才可以使用 docker 指令。通常每次開機都需要輸入。
-
-sudo systemctl enable docker 
-#這可以讓 電腦開機時(不論是windows or unbuntu 虛擬機 開機) 都會自動 啟動 docker 工具。
-
-sudo docker ps -a
+#確認有版本就是安裝完成
+make --v 
 ```
 
-```bash
-sudo -s #這可以讓之後的指令 不須要 加上 sudo
-```
+Makefile 可以連續執行一連串的指令操作 可以更方便初始化資料
 
----
+初始化100筆資料到 client1 資料夾 並且複製到 client2 and client3
 
-## docker compose 安裝
+### 啟動所有 container
 
-```bash
-#🔧 Step 1：安裝必要工具
-sudo apt-get update
-sudo apt-get install ca-certificates curl gnupg
-
-#🔐 Step 2：加入 Docker 官方 GPG 金鑰
-sudo install -m 0755 -d /etc/apt/keyrings
-
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
-sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
-
-#📦 Step 3：加入 Docker Repository
-echo \
-  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-  https://download.docker.com/linux/ubuntu \
-  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-  
-#🚀 Step 4：更新並安裝 Compose
-sudo apt-get update
-sudo apt-get install docker-compose-plugin
-
-#✅ 驗證是否安裝成功
-docker compose version
-
-#成功會顯示：
-Docker Compose version v2.x.x
-
-```
-
----
-
-## 使用 vscode 連線到 ubuntu
-
-如果要開啟 vscode 而且是 連接到 ubuntu 上面的話 就需要 輸入 code .
-
-但如果不能使用 請先在 vscode 安裝 extension
-
-![wsl_vscode.png](./img/wsl_vscode.png)
-
-安裝完 extension 後 在 vscode 輸入 ctrl + shift +P  打上 wsl: connect to wsl 後
-
-就可以在 vscode 打開 ubuntu 的 畫面。
-
----
-
-## 從 github 下載程式碼
-
-可以先創個資料夾 這裡叫做 dockerHW
-
-```bash
-mkdir dockerHW
-
-cd dockerHW
-```
-
-程式碼:
-
-<https://github.com/rong93/shared_ledger>
-
-或是用指令下在 會需要 git
-
-```bash
-git clone https://github.com/rong93/shared_ledger.git
-```
-
-![git_clone.png](./img/git_clone.png)
-
-之後進入到 shared_ledger 資料夾
-
-```bash
-cd shared_ledger
-```
-
----
-
-## 指令執行 有兩種
-
-1. 進入到 容器 終端機 的 執行指令的方法:
-
-```bash
-docker exec -it client-1 bash
-```
-
-這會讓你進入到 client-1，就像是進入到 這台電腦的中端機 可以打指令來操作它。
-
-像是
-
-```bash
-python3 app_transaction.py Alice Bob 100
-```
-
-1. 如果不想進入到容器裡面輸入指令 也可以直接使用
-
-```bash
-docker exec -it client-1 python3 app_transaction.py Alice Bob 100
-```
-
-會是一樣的效果 但就不需要分段輸入。很像快速進入到 client-1 的終端機 輸入指令 又跳出來。
-
----
-
-簡單介紹:
-
-dockerfile 規格書 電腦所有內容都在這裡寫好 包括 程式碼
-
-build dockerfile → 會生出 image
-
-docker run image → 才會生出 一個 容器
-
----
-
-## DEMO
-
-### 容器啟動
-
-啟動多個容器
 ```bash
 sudo -s
 ```
@@ -172,172 +56,114 @@ docker compose up -d --build
 docker ps -a
 ```
 
-會出現 3 個 容器，如果 STATUS 是 UP，就代表容器啟動成功，就像是 三台 開了機但沒人在用的電腦。
-
-![container_status.png](./img/container_status.png)
-
----
-
-### 初始化所有資料
-
-可以更換任何 container (client-1, client-2, client-3)
-
-先確定你的終端機在 /shared_ledger 資料夾中 後，執行:
+## DEMO
 
 ```bash
-docker exec -it client-1 python3 app_init.py
+make init
 ```
 
-會自動生成出 21 個 .txt 檔案。21.txt 沒有交易紀錄 但是會有上一個 block 的 hash 值。
-
----
-
-### 執行6 次轉帳
+如果遇到 container 已經存在的類似問題 可以執行
 
 ```bash
-docker exec -it client-1 python3 app_transaction.py A B 100
+docker rm -f client-1 client-2 client-3
+```
+
+再重新跑一次 make init
+
+使用 container 開啟 p2p.py 程式
+
+### 開啟三個終端機視窗，進入到專案的資料夾，分別進入三個容器
+
+```bash
+docker exec -it client-1 python3 p2p.py
 ```
 
 ```bash
-docker exec -it client-1 python3 app_transaction.py A C 155
+docker exec -it client-2 python3 p2p.py
 ```
 
 ```bash
-docker exec -it client-2 python3 app_transaction.py D E 321
+docker exec -it client-3 python3 p2p.py
+```
+
+### 轉帳 6 次
+
+```bash
+transaction A B 100
 ```
 
 ```bash
-docker exec -it client-2 python3 app_transaction.py D B 81
+transaction D R 51
 ```
 
 ```bash
-docker exec -it client-3 python3 app_transaction.py B D 77
+transaction B C 189
 ```
 
 ```bash
-docker exec -it client-3 python3 app_transaction.py C E 126
-```
-
----
-
-### 選2 個client 查詢餘額
-
-```bash
-docker exec -it client-2 python3 app_checkMoney.py A
+transaction C K 156
 ```
 
 ```bash
-docker exec -it client-3 python3 app_checkMoney.py B
-```
-
----
-
-### 任選2 個client 查詢交易紀錄
-
-```bash
-docker exec -it client-1 python3 app_checkLog.py C
+transaction B D 325
 ```
 
 ```bash
-docker exec -it client-2 python3 app_checkLog.py D
+transaction D A 118
 ```
 
----
+### 任意二個clients查詢餘額
 
-### 檢查帳本鏈完整性（正常狀態）
+在某兩個終端機執行:
 
 ```bash
-docker exec -it client-1 python3 app_checkChain.py A
+checkMoney B
 ```
-
----
-
-### 人為竄改某一區塊 再次檢查帳本鏈完整性（需能偵測錯誤）
-
-在手動串改 .txt 檔案時 因為某些原因 所以儲存時會遇到權限的問題
-
-所以要先執行:
 
 ```bash
-sudo chmod -R 777 $(pwd)/storage/
+checkMoney A
 ```
 
-(ˋ注意: 每次有 重新初始化(app_init.py) 就需要執行)
+### 任意二個clients查詢交易記錄
 
-之後再跑:
+在某兩個終端機執行:
 
 ```bash
-docker exec -it client-1 python3 app_checkChain.py A
+checkLog B
 ```
 
----
+```bash
+checkLog C
+```
 
-### 典型的 **Linux 檔案權限問題** 錯誤原因
+### checkChain: 檢查帳本鍊完整性
 
-**`EACCES: permission denied`**：代表你目前的 WSL 使用者（ron）沒有權限對 `/storage/` 資料夾或其中的 `1.txt` 進行**寫入**操作。這通常是因為該資料夾是由 `root` 或 Docker 建立的。
+```bash
+checkChain A
+```
 
-## dockerfile 撰寫流程(用來理解用的) 現在可以從 github 直接下載寫好的 程式碼
+### checkChain: 竄改任一Client的一個帳本區塊，檢查帳本鍊完整性
 
-  開一個作業資料夾
+先修改 client3 的 某筆 .txt 資料
 
-  ```bash
-  mkdir -p shared_ledger #共享帳本黨名
-  ```
+再跑檢查 記住: 要在終端機 client3 的地方執行才會報出錯誤
 
-  進入資料夾後 創建共享的空間 放帳本
+```bash
+checkChain A
+```
 
-  ```bash
-  mkdir -p storage
-  
-  ```
+### checkAllChains: 檢查所有帳本鍊的完整性
 
-  建立 Dockerfile (這就是檔名)
+```bash
+checkAllChains A
+```
 
-  ![dockerfile.png](./img/dockerfile.png)
+### checkAllChains : 竄改任一Client的一個帳本區塊，檢查所有帳本鍊的完整性
 
-  ```bash
-  # 1. 使用官方 Python 輕量版作為基礎
-  FROM python:3.9-slim
-  
-  # 2. 設定容器內的工作目錄，之後你的程式碼會出現在這裡
-  WORKDIR /app
-  
-  # 3. 預先建立好共享帳本的掛載點
-  RUN mkdir -p /share
-  
-  # 4. 因為你還沒寫好執行檔，我們先讓容器啟動後「空轉」
-  # 這樣容器才不會因為沒事做就自動關閉（Exited）
-  CMD ["tail", "-f", "/dev/null"]
-  ```
+先修改 client3 的 某筆 .txt 資料
 
-  撰寫 `docker-compose.yml`
+再跑
 
-  ```bash
-  services:
-    # 定義第一台機器
-    client1:
-      build: .               # 使用目前資料夾的 Dockerfile 建立環境
-      container_name: client-1
-      volumes:
-        - .:/app             # 同步你的 Python 程式碼
-        - ./storage:/share   # 【關鍵】這是三台機器共用的「帳本空間」
-      tty: true              # 讓容器保持啟動，不要自動關閉
-  
-    # 定義第二台機器
-    client2:
-      build: .
-      container_name: client-2
-      volumes:
-        - .:/app
-        - ./storage:/share   # 指向同一個實體資料夾
-      tty: true
-  
-    # 定義第三台機器
-    client3:
-      build: .
-      container_name: client-3
-      volumes:
-        - .:/app
-        - ./storage:/share   # 指向同一個實體資料夾
-      tty: true
-  ```
+```bash
+checkAllChains A
+```
