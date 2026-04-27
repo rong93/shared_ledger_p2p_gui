@@ -72,6 +72,26 @@ class P2PNode:
                     index, res_hash = parts[1], parts[2]
                     self.responses.append((addr, index, res_hash))
 
+                # --- 新增：處理檔案索取 (當別人跟我要正確帳本時) ---
+                elif msg.startswith("REQUEST_FILE_AT:"):
+                    idx_req = msg.split(":")[1]
+                    file_path = os.path.join(STORAGE_PATH, f"{idx_req}.txt")
+                    if os.path.exists(file_path):
+                        with open(file_path, "r") as f:
+                            content = f.read()
+                        # 回傳格式: RESPONSE_FILE_AT:編號:內容
+                        self.sock.sendto(f"RESPONSE_FILE_AT:{idx_req}:{content}".encode('utf-8'), addr)
+
+                # --- 新增：處理檔案回傳 (當我收到別人給我的正確帳本時) ---
+                elif msg.startswith("RESPONSE_FILE_AT:"):
+                    file_parts = msg.split(":", 2) # header, idx, content
+                    if len(file_parts) == 3:
+                        idx_res, content = file_parts[1], file_parts[2]
+                        file_path = os.path.join(STORAGE_PATH, f"{idx_res}.txt")
+                        with open(file_path, "w") as f:
+                            f.write(content)
+                        print(f"  [修復通知] 第 {idx_res} 塊檔案已由遠端節點同步並覆寫成功。")
+
                 # 解析交易訊息 格式: "sender,receiver,amount"
                 if "," in msg:
                     parts = msg.split(",")
@@ -108,7 +128,7 @@ class P2PNode:
 
             if cmd == "transaction":
                 if len(user_input) == 4:
-                    sender, receiver, amount_str = user_input[1], user_input[2], user_input[3]
+                    sender,receiver, amount_str = user_input[1], user_input[2], user_input[3]
                     try:
                         amount = int(amount_str)
 
@@ -238,6 +258,70 @@ class P2PNode:
                         print("\n驗證失敗：帳本存在分歧，不發放獎勵。")
                 else:
                     print("用法: checkAllChains <RewardUser>")
+
+            elif cmd == "repair":
+                # 取得本地所有區塊列表
+                files = sorted([f for f in os.listdir(STORAGE_PATH) if f.endswith(".txt") and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
+                total_blocks = len(files)
+                
+                print(f"\n開始執行全網帳本修復 (多數決)，總計區塊數: {total_blocks}")
+                
+                for i in range(1, total_blocks + 1):
+                    print(f"--- 正在檢查第 {i} 塊 ---")
+                    my_hash = get_file_hash(os.path.join(STORAGE_PATH, f"{i}.txt"))
+                    
+                    # 1. 廣播請求 Hash
+                    self.responses = []
+                    self.is_waiting_other_clients_reply = True
+                    self._broadcast(f"REQUEST_HASH_AT:{i}")
+                    
+                    # 2. 等待回應
+                    expected_count = len(self.peers) - 1
+                    wait_start = time.time()
+                    while len(self.responses) < expected_count and (time.time() - wait_start < 2.0):
+                        time.sleep(0.1)
+                    self.is_waiting_other_clients_reply = False
+
+                    # 3. 統計投票 (包含自己)
+                    all_votes = {my_hash: [("Local", my_hash)]}
+                    for addr, res_idx, res_hash in self.responses:
+                        if res_hash not in all_votes: all_votes[res_hash] = []
+                        all_votes[res_hash].append((addr, res_hash))
+                    
+                    # 4. 尋找多數真相 (>50%)
+                    total_nodes = len(self.peers)
+                    truth_hash = None
+                    for h, voters in all_votes.items():
+                        if len(voters) > total_nodes / 2: # 多數決
+                            truth_hash = h
+                            break
+                    
+                    if truth_hash:
+                        # 5. 首先確保「自己」是正確的
+                        if my_hash != truth_hash:
+                            valid_peers = [v[0] for v in all_votes[truth_hash] if v[0] != "Local"]
+                            if valid_peers:
+                                voter_addr = valid_peers[0]
+                                print(f"  [本地異常] 正在向 {voter_addr} 索取正確檔案...")
+                                self.sock.sendto(f"REQUEST_FILE_AT:{i}".encode('utf-8'), voter_addr)
+                                time.sleep(0.6) # 等待背景寫入檔案
+                        
+                        # 6. 現在我已確保是正確的了，主動去修復那些「錯誤的鄰居」
+                        # 讀取目前正確的內容
+                        with open(os.path.join(STORAGE_PATH, f"{i}.txt"), "r") as f:
+                            correct_content = f.read()
+                            
+                        for addr, res_idx, res_hash in self.responses:
+                            if res_hash != truth_hash:
+                                print(f"  [全網修復] 偵測到節點 {addr} 資料錯誤，正在推播正確檔案...")
+                                self.sock.sendto(f"RESPONSE_FILE_AT:{i}:{correct_content}".encode('utf-8'), addr)
+                        
+                        if my_hash == truth_hash:
+                            print(f"  [狀態正常] 本地與多數共識一致")
+                    else:
+                        print("➔ [嚴重錯誤] 找不到 >50% 的共識帳本，系統不被信任！")
+                        break
+                print("\n全網修復程序結束。")
 
             elif cmd == "checkLog":
                 if len(user_input) == 2:
