@@ -58,11 +58,15 @@ docker ps -a
 
 ## DEMO
 
+先進入到專案的資料夾下 (shared_ledger_p2p)
+
+這會初始 20 個 block 的資料，所以之後竄改壞掉想要重新生成 block 可以執行這個
+
 ```bash
 make init
 ```
 
-如果遇到 container 已經存在的類似問題 可以執行
+如果遇到 container 已經存在的類似問題 可以執行 (所以正常不需要執行)
 
 ```bash
 docker rm -f client-1 client-2 client-3
@@ -70,9 +74,9 @@ docker rm -f client-1 client-2 client-3
 
 再重新跑一次 make init
 
-使用 container 開啟 p2p.py 程式
+### 使用 container 開啟 p2p.py 程式
 
-### 開啟三個終端機視窗，進入到專案的資料夾，分別進入三個容器
+開啟三個終端機視窗，進入到專案的資料夾，分別進入三個容器
 
 ```bash
 docker exec -it client-1 python3 p2p.py
@@ -167,3 +171,29 @@ checkAllChains A
 ```bash
 checkAllChains A
 ```
+
+### 帳本的共識機制
+
+1. 改動 client1 2.txt 某一條 後，在任意 client 終端機 執行
+
+    ```bash
+    repairAllChains
+    ```
+
+    會修復成功
+
+2. 改動 client1 2.txt 和 client2 6.txt 和 client3 14.txt 後，在任意 client 終端機 執行
+
+    ```bash
+    repairAllChains
+    ```
+
+    會修復成功
+
+3. 改動 client1 2.txt 和 client2 2.txt (注意: 不能改成一模一樣)，在任意 client 終端機 執行
+
+    ```bash
+    repairAllChains
+    ```
+
+    會報出錯誤訊息，因為 有兩個 client 的 2.txt 都被竄改，若找不到>50%以上的帳本

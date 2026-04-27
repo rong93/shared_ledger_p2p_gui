@@ -72,7 +72,7 @@ class P2PNode:
                     index, res_hash = parts[1], parts[2]
                     self.responses.append((addr, index, res_hash))
 
-                # --- 新增：處理檔案索取 (當別人跟我要正確帳本時) ---
+                # 執行repairAllChains 時，處理檔案索取 (當別人跟我要正確帳本時)
                 elif msg.startswith("REQUEST_FILE_AT:"):
                     idx_req = msg.split(":")[1]
                     file_path = os.path.join(STORAGE_PATH, f"{idx_req}.txt")
@@ -82,7 +82,7 @@ class P2PNode:
                         # 回傳格式: RESPONSE_FILE_AT:編號:內容
                         self.sock.sendto(f"RESPONSE_FILE_AT:{idx_req}:{content}".encode('utf-8'), addr)
 
-                # --- 新增：處理檔案回傳 (當我收到別人給我的正確帳本時) ---
+                # 執行repairAllChains 時，處理檔案回傳 (當我收到別人給我的正確帳本時)
                 elif msg.startswith("RESPONSE_FILE_AT:"):
                     file_parts = msg.split(":", 2) # header, idx, content
                     if len(file_parts) == 3:
@@ -102,7 +102,7 @@ class P2PNode:
                             print(f"\n[接收廣播] 已接收來自 {addr} 的交易: {sender} -> {receiver} ({amount})\n")
                             process_transaction(sender, receiver, amount)
 
-                            print("=" * 64 +"\nEnter a command (checkMoney, checkLog, transaction, checkChain, checkAllChains): ", end="", flush=True)
+                            print("=" * 64 +"\nEnter a command (checkMoney, checkLog, transaction, checkChain, checkAllChains, repairAllChains): ", end="", flush=True)
             except Exception:
                 pass
 
@@ -120,7 +120,7 @@ class P2PNode:
     def _menu_loop(self):
         """主要互動式指令選單"""
         while True:
-            user_input = input("=" * 64 +"\nEnter a command (checkMoney, checkLog, transaction, checkChain, checkAllChains): ").strip().split()
+            user_input = input("=" * 64 +"\nEnter a command (checkMoney, checkLog, transaction, checkChain, checkAllChains, repairAllChains): ").strip().split()
             if not user_input:
                 continue
             
@@ -246,7 +246,7 @@ class P2PNode:
                     
                     # 5. 最終獎勵判斷
                     if all_chain_match:
-                        print(f"\n驗證完成：全網帳本一致！發放 100 元獎勵給 {reward_user}。")
+                        print(f"\n驗證完成：全域帳本一致！發放 100 元獎勵給 {reward_user}。")
                         
                         # 1. 廣播獎勵訊息給其他節點
                         msg = f"transaction,Angel,{reward_user},100"
@@ -259,12 +259,12 @@ class P2PNode:
                 else:
                     print("用法: checkAllChains <RewardUser>")
 
-            elif cmd == "repair":
+            elif cmd == "repairAllChains":
                 # 取得本地所有區塊列表
                 files = sorted([f for f in os.listdir(STORAGE_PATH) if f.endswith(".txt") and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
                 total_blocks = len(files)
                 
-                print(f"\n開始執行全網帳本修復 (多數決)，總計區塊數: {total_blocks}")
+                print(f"\n開始執行全域帳本修復 (多數決)，總計區塊數: {total_blocks}")
                 
                 for i in range(1, total_blocks + 1):
                     print(f"--- 正在檢查第 {i} 塊 ---")
@@ -313,7 +313,7 @@ class P2PNode:
                             
                         for addr, res_idx, res_hash in self.responses:
                             if res_hash != truth_hash:
-                                print(f"  [全網修復] 偵測到節點 {addr} 資料錯誤，正在推播正確檔案...")
+                                print(f"  [全域修復] 偵測到節點 {addr} 資料錯誤，正在推播正確檔案...")
                                 self.sock.sendto(f"RESPONSE_FILE_AT:{i}:{correct_content}".encode('utf-8'), addr)
                         
                         if my_hash == truth_hash:
@@ -321,7 +321,7 @@ class P2PNode:
                     else:
                         print("➔ [嚴重錯誤] 找不到 >50% 的共識帳本，系統不被信任！")
                         break
-                print("\n全網修復程序結束。")
+                print("\n全域修復程序結束。")
 
             elif cmd == "checkLog":
                 if len(user_input) == 2:
