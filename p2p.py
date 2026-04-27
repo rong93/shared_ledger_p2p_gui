@@ -16,18 +16,15 @@ class P2PNode:
         self.peers = peers # 這台 container 要傳給誰資料
         self.my_hostname = socket.gethostname() # 這台 container 的 名稱(ex: client-1)
 
-        # 收集回應的暫存
         self.responses = []
-        self.is_collecting = False
+        self.is_waiting_other_clients_reply = False
 
         # 使用 IPv4 格式 ，使用 UDP 協定 的 廣播機制
-
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         # 定義收件地址 寫 0.0.0.0 代表 會傳到 這台 container 的 外部和內部 IP 地址
         self.sock.bind(('0.0.0.0', self.port))
 
-    # 按照 checkAllChains 需求所加入的功能
     def _get_last_block_hash(self):
         """取得本地端最後一個區塊的 Hash"""
         if not os.path.exists(STORAGE_PATH):
@@ -61,16 +58,19 @@ class P2PNode:
                 data, addr = self.sock.recvfrom(1024)
                 msg = data.decode('utf-8')
                 
-                # 執行 checkAllChains 時，會接收到請求 要回傳最後一個 block 的 hash
-                if msg == "CHECK_REQUEST":
-                    last_hash = self._get_last_block_hash()
-                    response = f"HASH_RES:{last_hash}"
-                    self.sock.sendto(response.encode('utf-8'), addr)
+                # 執行 checkAllChains 時，這裡 "其他 clients" 會回傳指定 index.txt 的 hash 值
+                if msg.startswith("REQUEST_HASH_AT:"):
+                    index = msg.split(":")[1]
+                    target_file = os.path.join(STORAGE_PATH, f"{index}.txt")
+                    res_hash = get_file_hash(target_file) if os.path.exists(target_file) else "None"
+                    self.sock.sendto(f"RESPONSE_HASH_AT:{index}:{res_hash}".encode('utf-8'), addr)
                 
-                # 接收別人的 Hash 回報
-                elif msg.startswith("HASH_RES:") and self.is_collecting:
-                    res_hash = msg.split(":")[1]
-                    self.responses.append((addr, res_hash))
+                # 執行 checkAllChains 時，這裡 "主 client" 會接收別人回傳的 hash 值
+                elif msg.startswith("RESPONSE_HASH_AT:") and self.is_waiting_other_clients_reply:
+                    # 格式: RESPONSE_HASH_AT:index:hash
+                    parts = msg.split(":")
+                    index, res_hash = parts[1], parts[2]
+                    self.responses.append((addr, index, res_hash))
 
                 # 解析交易訊息 格式: "sender,receiver,amount"
                 if "," in msg:
@@ -156,35 +156,76 @@ class P2PNode:
                 if len(user_input) == 2:
                     reward_user = user_input[1]
                     
-                    # 1. 自己先算 (Step 2: 本地自檢並取得最後 Hash)
-                    my_hash = self._get_last_block_hash()
-                    print(f"\n本地端最終指紋 (Sha256): {my_hash}")
+                    # 取得本地所有區塊列表
+                    files = sorted([f for f in os.listdir(STORAGE_PATH) if f.endswith(".txt") and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
+                    total_blocks = len(files)
+                    
+                    if total_blocks == 0:
+                        print("尚無區塊可驗證。")
+                        continue
 
-                    # 2. 發起全網廣播
+                    # --- Step 1: 跨節點檢查最後一個區塊 ---
+                    print(f"\n[Step 1] 跨節點檢查最後一個區塊 (第 {total_blocks} 塊)...")
                     self.responses = []
-                    self.is_collecting = True
-                    self._broadcast("CHECK_REQUEST")
+                    self.is_waiting_other_clients_reply = True
+                    self._broadcast(f"REQUEST_HASH_AT:{total_blocks}")
                     
-                    # 3. 簡單等待：直到收齊所有鄰居的回應 (假設鄰居數量為 len(peers)-1)
+                    # 等待其餘節點回應 (假設鄰居數量為 len(peers)-1)
                     expected_count = len(self.peers) - 1
-                    print(f"正在等待其餘 {expected_count} 個節點回應並進行比對...")
+                    wait_start = time.time()
+                    while len(self.responses) < expected_count and (time.time() - wait_start < 2.0):
+                        time.sleep(0.1)
                     
-                    while len(self.responses) < expected_count:
-                        time.sleep(0.1) 
+                    self.is_waiting_other_clients_reply = False
 
-                    self.is_collecting = False
-
-                    # 4. 兩兩比對 (Step 1)
-                    all_match = True
-                    for addr, remote_hash in self.responses:
-                        if remote_hash == my_hash:
-                            print(f"-> 節點 {addr}: Yes (二者的Sha256一樣)")
+                    # 判斷 Step 1 是否全數通過
+                    my_last_hash = get_file_hash(os.path.join(STORAGE_PATH, f"{total_blocks}.txt"))
+                    # 收到任一個節點的回傳結果後馬上進行兩兩比對，並輸出到螢幕
+                    step1_match = True
+                    for addr, res_idx, res_hash in self.responses:
+                        if res_hash == my_last_hash:
+                            print(f"  -> 節點 {addr}: Yes (二者的Sha256一樣)")
                         else:
-                            print(f"-> 節點 {addr}: No (不一致)")
-                            all_match = False
+                            print(f"  -> 節點 {addr}: No (不一致)")
+                            step1_match = False
                     
-                    # 5. 驗證成功獎勵
-                    if all_match:
+                    if not step1_match or len(self.responses) < expected_count:
+                        print("\n[Step 1 失敗] 最終區塊不一致或回應節點不足，驗證終止。")
+                        continue
+
+                    # --- Step 2: 從第一個區塊走到最後一個區塊，檢查所有本地端帳本 ---
+                    print(f"\n[Step 2] 最後區塊一致，開始從頭逐塊檢查...")
+                    all_chain_match = True
+                    for i in range(1, total_blocks + 1):
+                        print(f"正在驗證第 {i} 塊...")
+                        self.responses = []
+                        self.is_waiting_other_clients_reply = True
+                        self._broadcast(f"REQUEST_HASH_AT:{i}")
+                        
+                        wait_start = time.time()
+                        while len(self.responses) < expected_count and (time.time() - wait_start < 2.0):
+                            time.sleep(0.1) 
+                        
+                        self.is_waiting_other_clients_reply = False
+
+                        # 檢查這一輪的所有回應是否都正確
+                        my_idx_hash = get_file_hash(os.path.join(STORAGE_PATH, f"{i}.txt"))
+                        match_this_block = True
+                        for addr, res_idx, res_hash in self.responses:
+                            if res_hash == my_idx_hash:
+                                print(f"  -> 節點 {addr}: Yes (二者的Sha256一樣)")
+                            else:
+                                print(f"  -> 節點 {addr}: No (不一致)")
+                                match_this_block = False
+                                all_chain_match = False
+                        
+                        if not match_this_block or len(self.responses) < expected_count:
+                            print(f"\n[警告] 第 {i} 塊發現共識分歧或節點回應不足，驗證終止。")
+                            all_chain_match = False
+                            break
+                    
+                    # 5. 最終獎勵判斷
+                    if all_chain_match:
                         print(f"\n驗證完成：全網帳本一致！發放 100 元獎勵給 {reward_user}。")
                         
                         # 1. 廣播獎勵訊息給其他節點
@@ -194,7 +235,7 @@ class P2PNode:
                         # 2. 更新自己的帳本
                         process_transaction("Angel", reward_user, 100)
                     else:
-                        print("\n驗證失敗：帳本不一致或節點回應不足，不發放獎勵。")
+                        print("\n驗證失敗：帳本存在分歧，不發放獎勵。")
                 else:
                     print("用法: checkAllChains <RewardUser>")
 
