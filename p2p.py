@@ -39,17 +39,27 @@ class P2PNode:
         last_file_path = os.path.join(STORAGE_PATH, files[-1])
         return get_file_hash(last_file_path)
 
-    def start(self):
+    def start(self, interactive=True):
         # 啟動背景監聽線程
-
-        # 讓程式可以同時做兩件事。監聽外面的廣播 和 輸入指令的畫面。
         listener = threading.Thread(target=self._listen, daemon=True)
         listener.start()
 
         print(f"P2P 節點已啟動，監聽 Port: {self.port}")
+
+        if interactive:
+            # 進入指令選單循環
+            self._menu_loop()
+
+    def send_transaction(self, sender, receiver, amount):
+        """傳送交易訊息 (廣播給包含自己在內的所有節點)"""
+        msg = f"transaction,{sender},{receiver},{amount}"
         
-        # 進入指令選單循環
-        self._menu_loop()
+        for peer in self.peers:
+            try:
+                # peer 已經是 (hostname, port) 的格式
+                self.sock.sendto(msg.encode('utf-8'), peer)
+            except Exception as e:
+                print(f"無法傳送給 {peer}: {e}")
 
     def _listen(self):
         """背景監聽：持續接收其他節點廣播的交易訊息"""

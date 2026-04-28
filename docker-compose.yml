@@ -1,14 +1,17 @@
 services:
   # 定義第一台機器
   client1:
-    build: .               # 使用目前資料夾的 Dockerfile 建立環境
+    build: .
     container_name: client-1
     hostname: client1
     volumes:
-      - .:/app             # Ubuntu 中的程式碼 到 container 
-      - ./storage/client1:/app/storage # 每個 container 有獨立帳本
-    tty: true              # 讓容器保持啟動，不要自動關閉
-    stdin_open: true # 關鍵：確保可以接收輸入 不是很確定用處
+      - .:/app
+      - ./storage/client1:/app/storage
+    ports:
+      - "8001:8001"
+      - "8501:8501" # Web GUI for client1
+    tty: true
+    stdin_open: true
 
   # 定義第二台機器
   client2:
@@ -17,9 +20,12 @@ services:
     hostname: client2
     volumes:
       - .:/app
-      - ./storage/client2:/app/storage   # 每個 container 有獨立帳本
+      - ./storage/client2:/app/storage
+    ports:
+      - "8002:8001"
+      - "8502:8501" # Web GUI for client2
     tty: true
-    stdin_open: true 
+    stdin_open: true
 
   # 定義第三台機器
   client3:
@@ -28,6 +34,10 @@ services:
     hostname: client3
     volumes:
       - .:/app
-      - ./storage/client3:/app/storage   # 每個 container 有獨立帳本
+      - ./storage/client3:/app/storage
+    ports:
+      - "8003:8001"
+      - "8503:8501" # Web GUI for client3
     tty: true
-    stdin_open: true 
+    stdin_open: true
+ 
