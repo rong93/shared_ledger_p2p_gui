@@ -36,7 +36,7 @@ def check_chain(reward_user=None):
 
         if actual_hash != recorded_hash:
             print(f"帳本鍊受損，錯誤的區塊編號: {curr_file}")
-            return False
+            return False, curr_file
 
     # 3. 檢查通過，發放獎勵
     print("OK 檢查通過")
@@ -47,7 +47,7 @@ def check_chain(reward_user=None):
     else:
         print("驗證完成，但 Angel 餘額不足以支付獎金。")
 
-    return True
+    return True, None
 
 if __name__ == "__main__":
     check_chain()

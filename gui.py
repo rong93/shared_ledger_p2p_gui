@@ -4,6 +4,7 @@ import time
 import socket
 from p2p import P2PNode
 from app_transaction import get_balances, STORAGE_PATH
+from app_checkLog import check_log
 
 # 設定頁面配置
 st.set_page_config(page_title="P2P Shared Ledger", layout="wide")
@@ -57,18 +58,17 @@ with left_col:
         
         if submit_button:
             if sender and receiver:
-
                 # 執行交易
                 node.send_transaction(sender, receiver, amount)
                 time.sleep(1)
 
-                # 檢查使用者是否存在及餘額是否足夠
+                # 檢查餘額
                 balances = get_balances()
                 if sender not in balances or balances[sender] < amount:
                     st.error(f"❌ 交易失敗：{sender} 餘額不足或帳號不存在")
                 else:                   
                     st.success(f"✅ 交易已廣播: {sender} -> {receiver} (${amount})")
-                time.sleep(1) # 等待寫入
+                time.sleep(1)
                 st.rerun()
             else:
                 st.error("❌ 請填寫發送者與接收者名稱")
@@ -88,18 +88,69 @@ with right_col:
 # --- 底部：功能按鈕 ---
 st.divider()
 st.subheader("⚙️ 系統管理")
-c1, c2, c3 = st.columns(3)
-if c1.button("🔍 執行全網共識檢查 (Check All)"):
-    # 這裡可以呼叫 node.check_all_chains 邏輯 (需稍微調整 p2p.py 使其回傳結果)
-    st.info("功能執行中，請查看後台 Log...")
+
+# 查詢區塊
+st.subheader("🔍 查詢使用者交易紀錄 (CheckLog)")
+search_user = st.text_input("輸入使用者名稱", key="search_user")
+if st.button("執行查詢"):
+    if search_user:
+        logs = check_log(search_user)
+        if logs:
+            st.text_area("查詢結果", value="\n".join(logs), height=200)
+        else:
+            st.info(f"查無使用者 '{search_user}' 的交易紀錄。")
+    else:
+        st.warning("請輸入要查詢的使用者名稱。")
+
+st.divider()
+
+reward_user = st.text_input("🏅 獎勵領取者 (用於帳本檢查)", value="A")
+
+c1, c2, c3, c4 = st.columns(4)
+
+if c1.button("🔍 本地帳本檢查 (Local)"):
+    if reward_user:
+        with st.spinner("正在檢查本地 Hash 鍊..."):
+            success, error_file = node.check_local_chain(reward_user)
+            if success:
+                st.success(f"✅ 本地帳本完整！獎勵已發放給 {reward_user}")
+                node._broadcast(f"transaction,Angel,{reward_user},10")
+                time.sleep(2)
+                # st.rerun()
+            else:
+                st.error(f"❌ 本地帳本受損！錯誤發生在: **{error_file}**")
+    else:
+        st.warning("請輸入獎勵領取者名稱")
+
+if c2.button("🌐 全域共識檢查 (All)"):
+    if reward_user:
+        log_area = st.empty()
+        with st.spinner("正在進行跨節點共識驗證..."):
+            logs, success = node.check_all_chains(reward_user)
+            with log_area.container():
+                st.text_area("執行日誌", value="\n".join(logs), height=400)
+            if success:
+                st.success(f"✅ 全域帳本一致！發放 100 元獎勵給 {reward_user}")
+                time.sleep(2)
+                # st.rerun()
+            else:
+                st.error("❌ 全域共識失敗，帳本存在分歧。")
+    else:
+        st.warning("請輸入獎勵領取者名稱")
     
-if c2.button("🛠 執行全網帳本修復 (Repair)"):
-    st.info("修復程序啟動中...")
+if c3.button("🛠 帳本修復 (Repair)"):
+    log_area = st.empty()
+    with st.spinner("正在執行多數決修復程序..."):
+        logs, success = node.repair_all_chains()
+        with log_area.container():
+            st.text_area("修復日誌", value="\n".join(logs), height=400)
+        
+        if success:
+            st.success("✅ 修復程序成功結束，帳本已同步。")
+            time.sleep(2)
+            # st.rerun()
+        else:
+            st.error("❌ 修復失敗：無法達成多數決共識。")
 
-if c3.button("🔄 重新整理畫面"):
+if c4.button("🔄 重新整理"):
     st.rerun()
-
-# 定期更新 (Streamlit 不支援背景 push，這是一個簡單的自動重整機制)
-# st.empty() 
-# time.sleep(5)
-# st.rerun()

@@ -127,6 +127,151 @@ class P2PNode:
                except Exception as e:
                    print(f"發送至 {peer_host} 失敗: {e}")
 
+    def check_local_chain(self, reward_user):
+        """執行本地帳本檢查 (Hash 鍊驗證)"""
+        return check_chain(reward_user)
+
+    def check_all_chains(self, reward_user):
+        """執行全網共識檢查，並回傳 Log 列表"""
+        logs = []
+        files = sorted([f for f in os.listdir(STORAGE_PATH) if f.endswith(".txt") and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
+        total_blocks = len(files)
+        
+        if total_blocks == 0:
+            return ["尚無區塊可驗證。"], False
+
+        # --- Step 1: 跨節點檢查最後一個區塊 ---
+        logs.append(f"[Step 1] 跨節點檢查最後一個區塊 (第 {total_blocks} 塊)...")
+        self.responses = []
+        self.is_waiting_other_clients_reply = True
+        self._broadcast(f"REQUEST_HASH_AT:{total_blocks}")
+        
+        expected_count = len(self.peers) - 1
+        wait_start = time.time()
+        while len(self.responses) < expected_count and (time.time() - wait_start < 2.0):
+            time.sleep(0.1)
+        
+        self.is_waiting_other_clients_reply = False
+
+        my_last_hash = get_file_hash(os.path.join(STORAGE_PATH, f"{total_blocks}.txt"))
+        step1_match = True
+        for addr, res_idx, res_hash in self.responses:
+            if res_hash == my_last_hash:
+                logs.append(f"  -> 節點 {addr}: Yes (一致)")
+            else:
+                logs.append(f"  -> 節點 {addr}: No (不一致)")
+                step1_match = False
+        
+        if not step1_match or len(self.responses) < expected_count:
+            logs.append("[Step 1 失敗] 最終區塊不一致或回應節點不足，驗證終止。")
+            return logs, False
+
+        # --- Step 2: 從頭逐塊檢查 ---
+        logs.append("[Step 2] 最後區塊一致，開始從頭逐塊檢查...")
+        all_chain_match = True
+        for i in range(1, total_blocks + 1):
+            logs.append(f"正在驗證第 {i} 塊...")
+            self.responses = []
+            self.is_waiting_other_clients_reply = True
+            self._broadcast(f"REQUEST_HASH_AT:{i}")
+            
+            wait_start = time.time()
+            while len(self.responses) < expected_count and (time.time() - wait_start < 2.0):
+                time.sleep(0.1) 
+            
+            self.is_waiting_other_clients_reply = False
+            my_idx_hash = get_file_hash(os.path.join(STORAGE_PATH, f"{i}.txt"))
+            match_this_block = True
+            for addr, res_idx, res_hash in self.responses:
+                if res_hash == my_idx_hash:
+                    logs.append(f"  -> 節點 {addr}: Yes")
+                else:
+                    logs.append(f"  -> 節點 {addr}: No (不一致)")
+                    match_this_block = False
+                    all_chain_match = False
+            
+            if not match_this_block:
+                logs.append(f"[警告] 第 {i} 塊發現共識分歧，驗證終止。")
+                all_chain_match = False
+                break
+        
+        if all_chain_match:
+            logs.append(f"驗證完成：全域帳本一致！發放 100 元獎勵給 {reward_user}。")
+            msg = f"transaction,Angel,{reward_user},100"
+            self._broadcast(msg)
+            process_transaction("Angel", reward_user, 100)
+            return logs, True
+        else:
+            logs.append("驗證失敗：帳本存在分歧，不發放獎勵。")
+            return logs, False
+
+    def repair_all_chains(self):
+        """執行全域帳本修復 (多數決)，並回傳 (Log 列表, 是否成功)"""
+        logs = []
+        files = sorted([f for f in os.listdir(STORAGE_PATH) if f.endswith(".txt") and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
+        total_blocks = len(files)
+        
+        logs.append(f"開始執行全域帳本修復 (多數決)，總計區塊數: {total_blocks}")
+        
+        overall_success = True
+        for i in range(1, total_blocks + 1):
+            logs.append(f"--- 正在檢查第 {i} 塊 ---")
+            my_hash = get_file_hash(os.path.join(STORAGE_PATH, f"{i}.txt"))
+            
+            self.responses = []
+            self.is_waiting_other_clients_reply = True
+            self._broadcast(f"REQUEST_HASH_AT:{i}")
+            
+            expected_count = len(self.peers) - 1
+            wait_start = time.time()
+            while len(self.responses) < expected_count and (time.time() - wait_start < 2.0):
+                time.sleep(0.1)
+            self.is_waiting_other_clients_reply = False
+
+            all_votes = {my_hash: [("Local", my_hash)]}
+            for addr, res_idx, res_hash in self.responses:
+                if res_hash not in all_votes: all_votes[res_hash] = []
+                all_votes[res_hash].append((addr, res_hash))
+            
+            total_nodes = len(self.peers)
+            truth_hash = None
+            for h, voters in all_votes.items():
+                if len(voters) > total_nodes / 2:
+                    truth_hash = h
+                    break
+            
+            if truth_hash:
+                if my_hash != truth_hash:
+                    valid_peers = [v[0] for v in all_votes[truth_hash] if v[0] != "Local"]
+                    if valid_peers:
+                        voter_addr = valid_peers[0]
+                        logs.append(f"  [本地異常] 正在向 {voter_addr} 索取正確檔案...")
+                        self.sock.sendto(f"REQUEST_FILE_AT:{i}".encode('utf-8'), voter_addr)
+                        time.sleep(0.6)
+                
+                # 更新本地內容後再讀取
+                with open(os.path.join(STORAGE_PATH, f"{i}.txt"), "r") as f:
+                    correct_content = f.read()
+                    
+                for addr, res_idx, res_hash in self.responses:
+                    if res_hash != truth_hash:
+                        logs.append(f"  [全域修復] 偵測到節點 {addr} 資料錯誤，正在推播正確檔案...")
+                        self.sock.sendto(f"RESPONSE_FILE_AT:{i}:{correct_content}".encode('utf-8'), addr)
+                
+                if my_hash == truth_hash:
+                    logs.append(f"  [狀態正常] 本地與多數共識一致")
+            else:
+                logs.append("➔ [嚴重錯誤] 找不到 >50% 的共識帳本，系統不被信任！")
+                overall_success = False
+                break
+        
+        if overall_success:
+            logs.append("全域修復程序成功結束。")
+        else:
+            logs.append("全域修復程序失敗：無法達成共識。")
+            
+        return logs, overall_success
+
     def _menu_loop(self):
         """主要互動式指令選單"""
         while True:
@@ -141,18 +286,10 @@ class P2PNode:
                     sender,receiver, amount_str = user_input[1], user_input[2], user_input[3]
                     try:
                         amount = int(amount_str)
-
-
-                        # 1. 廣播訊息給其他節點，讓全網同步
                         msg = f"{cmd},{sender},{receiver},{amount}"
                         self._broadcast(msg)
-
                         print(f"\n[發送廣播] {cmd}: {sender} -> {receiver} ({amount})\n")
-
-                        # 2. 更新並記錄在自己的本地帳本
                         process_transaction(sender, receiver, amount)
-
-
                     except ValueError:
                         print("錯誤: 金額必須是數字。")
                 else:
@@ -172,166 +309,29 @@ class P2PNode:
             elif cmd == "checkChain":
                 if len(user_input) == 2:
                     reward_user = user_input[1]
-                    if check_chain(reward_user): #檢查沒有錯誤的話 就需要 做到交易 所以要廣播
-
+                    success, error_file = self.check_local_chain(reward_user)
+                    if success:
                         msg = f"transaction,Angel,{reward_user},10"
                         self._broadcast(msg)
-
                         print(f"\n[發送廣播] transaction: Angel -> {reward_user} (10)\n")
-
+                    else:
+                        print(f"檢查失敗，受損檔案: {error_file}")
                 else:
                     print("用法: checkChain <RewardUser>")
 
             elif cmd == "checkAllChains":
                 if len(user_input) == 2:
                     reward_user = user_input[1]
-                    
-                    # 取得本地所有區塊列表
-                    files = sorted([f for f in os.listdir(STORAGE_PATH) if f.endswith(".txt") and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
-                    total_blocks = len(files)
-                    
-                    if total_blocks == 0:
-                        print("尚無區塊可驗證。")
-                        continue
-
-                    # --- Step 1: 跨節點檢查最後一個區塊 ---
-                    print(f"\n[Step 1] 跨節點檢查最後一個區塊 (第 {total_blocks} 塊)...")
-                    self.responses = []
-                    self.is_waiting_other_clients_reply = True
-                    self._broadcast(f"REQUEST_HASH_AT:{total_blocks}")
-                    
-                    # 等待其餘節點回應 (假設鄰居數量為 len(peers)-1)
-                    expected_count = len(self.peers) - 1
-                    wait_start = time.time()
-                    while len(self.responses) < expected_count and (time.time() - wait_start < 2.0):
-                        time.sleep(0.1)
-                    
-                    self.is_waiting_other_clients_reply = False
-
-                    # 判斷 Step 1 是否全數通過
-                    my_last_hash = get_file_hash(os.path.join(STORAGE_PATH, f"{total_blocks}.txt"))
-                    # 收到任一個節點的回傳結果後馬上進行兩兩比對，並輸出到螢幕
-                    step1_match = True
-                    for addr, res_idx, res_hash in self.responses:
-                        if res_hash == my_last_hash:
-                            print(f"  -> 節點 {addr}: Yes (二者的Sha256一樣)")
-                        else:
-                            print(f"  -> 節點 {addr}: No (不一致)")
-                            step1_match = False
-                    
-                    if not step1_match or len(self.responses) < expected_count:
-                        print("\n[Step 1 失敗] 最終區塊不一致或回應節點不足，驗證終止。")
-                        continue
-
-                    # --- Step 2: 從第一個區塊走到最後一個區塊，檢查所有本地端帳本 ---
-                    print(f"\n[Step 2] 最後區塊一致，開始從頭逐塊檢查...")
-                    all_chain_match = True
-                    for i in range(1, total_blocks + 1):
-                        print(f"正在驗證第 {i} 塊...")
-                        self.responses = []
-                        self.is_waiting_other_clients_reply = True
-                        self._broadcast(f"REQUEST_HASH_AT:{i}")
-                        
-                        wait_start = time.time()
-                        while len(self.responses) < expected_count and (time.time() - wait_start < 2.0):
-                            time.sleep(0.1) 
-                        
-                        self.is_waiting_other_clients_reply = False
-
-                        # 檢查這一輪的所有回應是否都正確
-                        my_idx_hash = get_file_hash(os.path.join(STORAGE_PATH, f"{i}.txt"))
-                        match_this_block = True
-                        for addr, res_idx, res_hash in self.responses:
-                            if res_hash == my_idx_hash:
-                                print(f"  -> 節點 {addr}: Yes (二者的Sha256一樣)")
-                            else:
-                                print(f"  -> 節點 {addr}: No (不一致)")
-                                match_this_block = False
-                                all_chain_match = False
-                        
-                        if not match_this_block or len(self.responses) < expected_count:
-                            print(f"\n[警告] 第 {i} 塊發現共識分歧或節點回應不足，驗證終止。")
-                            all_chain_match = False
-                            break
-                    
-                    # 5. 最終獎勵判斷
-                    if all_chain_match:
-                        print(f"\n驗證完成：全域帳本一致！發放 100 元獎勵給 {reward_user}。")
-                        
-                        # 1. 廣播獎勵訊息給其他節點
-                        msg = f"transaction,Angel,{reward_user},100"
-                        self._broadcast(msg)
-
-                        # 2. 更新自己的帳本
-                        process_transaction("Angel", reward_user, 100)
-                    else:
-                        print("\n驗證失敗：帳本存在分歧，不發放獎勵。")
+                    logs, success = self.check_all_chains(reward_user)
+                    for log in logs:
+                        print(log)
                 else:
                     print("用法: checkAllChains <RewardUser>")
 
             elif cmd == "repairAllChains":
-                # 取得本地所有區塊列表
-                files = sorted([f for f in os.listdir(STORAGE_PATH) if f.endswith(".txt") and f[:-4].isdigit()], key=lambda x: int(x[:-4]))
-                total_blocks = len(files)
-                
-                print(f"\n開始執行全域帳本修復 (多數決)，總計區塊數: {total_blocks}")
-                
-                for i in range(1, total_blocks + 1):
-                    print(f"--- 正在檢查第 {i} 塊 ---")
-                    my_hash = get_file_hash(os.path.join(STORAGE_PATH, f"{i}.txt"))
-                    
-                    # 1. 廣播請求 Hash
-                    self.responses = []
-                    self.is_waiting_other_clients_reply = True
-                    self._broadcast(f"REQUEST_HASH_AT:{i}")
-                    
-                    # 2. 等待回應
-                    expected_count = len(self.peers) - 1
-                    wait_start = time.time()
-                    while len(self.responses) < expected_count and (time.time() - wait_start < 2.0):
-                        time.sleep(0.1)
-                    self.is_waiting_other_clients_reply = False
-
-                    # 3. 統計投票 (包含自己)
-                    all_votes = {my_hash: [("Local", my_hash)]}
-                    for addr, res_idx, res_hash in self.responses:
-                        if res_hash not in all_votes: all_votes[res_hash] = []
-                        all_votes[res_hash].append((addr, res_hash))
-                    
-                    # 4. 尋找多數真相 (>50%)
-                    total_nodes = len(self.peers)
-                    truth_hash = None
-                    for h, voters in all_votes.items():
-                        if len(voters) > total_nodes / 2: # 多數決
-                            truth_hash = h
-                            break
-                    
-                    if truth_hash:
-                        # 5. 首先確保「自己」是正確的
-                        if my_hash != truth_hash:
-                            valid_peers = [v[0] for v in all_votes[truth_hash] if v[0] != "Local"]
-                            if valid_peers:
-                                voter_addr = valid_peers[0]
-                                print(f"  [本地異常] 正在向 {voter_addr} 索取正確檔案...")
-                                self.sock.sendto(f"REQUEST_FILE_AT:{i}".encode('utf-8'), voter_addr)
-                                time.sleep(0.6) # 等待背景寫入檔案
-                        
-                        # 6. 現在我已確保是正確的了，主動去修復那些「錯誤的鄰居」
-                        # 讀取目前正確的內容
-                        with open(os.path.join(STORAGE_PATH, f"{i}.txt"), "r") as f:
-                            correct_content = f.read()
-                            
-                        for addr, res_idx, res_hash in self.responses:
-                            if res_hash != truth_hash:
-                                print(f"  [全域修復] 偵測到節點 {addr} 資料錯誤，正在推播正確檔案...")
-                                self.sock.sendto(f"RESPONSE_FILE_AT:{i}:{correct_content}".encode('utf-8'), addr)
-                        
-                        if my_hash == truth_hash:
-                            print(f"  [狀態正常] 本地與多數共識一致")
-                    else:
-                        print("➔ [嚴重錯誤] 找不到 >50% 的共識帳本，系統不被信任！")
-                        break
-                print("\n全域修復程序結束。")
+                logs, success = self.repair_all_chains()
+                for log in logs:
+                    print(log)
 
             elif cmd == "checkLog":
                 if len(user_input) == 2:

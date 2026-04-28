@@ -7,18 +7,19 @@ def check_log(target_user=None):
     if target_user is None:
         if len(sys.argv) < 2:
             print("用法: python3 app_checkLog.py [使用者名稱]")
-            return
+            return []
         target_user = sys.argv[1]
     
     # 1. 取得所有區塊檔案並排序 (1.txt, 2.txt...)
     if not os.path.exists(STORAGE_PATH):
         print(f"錯誤: 找不到資料夾 {STORAGE_PATH}")
-        return
+        return []
 
     files = [f for f in os.listdir(STORAGE_PATH) if f.endswith(".txt") and f[:-4].isdigit()]
     files.sort(key=lambda x: int(x[:-4]))
 
     print(f"--- 查詢使用者 '{target_user}' 的所有交易紀錄 ---")
+    results = []
     found = False
 
     # 2. 逐一讀取區塊並過濾交易
@@ -34,11 +35,15 @@ def check_log(target_user=None):
                 receiver = parts[1]
                 # 精確比對使用者名稱
                 if target_user == sender or target_user == receiver:
-                    print(f"[{file_name}] {tx}")
+                    line = f"[{file_name}] {tx}"
+                    print(line)
+                    results.append(line)
                     found = True
 
     if not found:
         print("查無此使用者的交易紀錄。")
+    
+    return results
 
 if __name__ == "__main__":
     check_log()
