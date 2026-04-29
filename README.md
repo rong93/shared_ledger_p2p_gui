@@ -1,5 +1,9 @@
 # P2P GUI
 
+畫面展示
+![image.png](./img/gui1.png)
+![image.png](./img/gui2.png)
+
 徹底清除舊容器與網路
 
 ```bash
@@ -55,4 +59,3 @@ http://localhost:8502/
 ```bash
 http://localhost:8503/
 ```
-
