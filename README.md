@@ -56,4 +56,3 @@ http://localhost:8502/
 http://localhost:8503/
 ```
 
-對於 GUI 的操作就和上面一樣
