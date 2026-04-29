@@ -23,7 +23,7 @@ services:
       - ./storage/client2:/app/storage
     ports:
       - "8002:8001"
-      - "8502:8501" # Web GUI for client2
+      - "8502:8502" # Web GUI for client2
     tty: true
     stdin_open: true
 
@@ -37,7 +37,6 @@ services:
       - ./storage/client3:/app/storage
     ports:
       - "8003:8001"
-      - "8503:8501" # Web GUI for client3
+      - "8503:8503" # Web GUI for client3
     tty: true
     stdin_open: true
- 
